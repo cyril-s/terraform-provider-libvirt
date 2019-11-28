@@ -23,7 +23,10 @@ require (
 	github.com/vincent-petithory/dataurl v0.0.0-20160330182126-9a301d65acbb // indirect
 	go4.org v0.0.0-20181109185143-00e24f1b2599 // indirect
 	golang.org/x/lint v0.0.0-20181217174547-8f45f776aaf1
+	golang.org/x/sys v0.0.0-20191128015809-6d18c012aee9
 	golang.org/x/tools v0.0.0-20181219222714-6e267b5cc78e // indirect
 )
 
 replace git.apache.org/thrift.git => github.com/apache/thrift v0.0.0-20180902110319-2566ecd5d999
+
+go 1.13
