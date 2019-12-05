@@ -177,7 +177,84 @@ func TestAccLibvirtPool_NoDirPath(t *testing.T) {
 					name = "%s"
 					type = "dir"
 				}`, randomPoolResource, randomPoolName),
-				ExpectError: regexp.MustCompile(`"path" attribute is requires for storage pools of type "dir"`),
+				ExpectError: regexp.MustCompile(`"path" attribute is required for storage pools of type "dir"`),
+			},
+		},
+	})
+}
+
+func TestAccLibvirtPool_LVMBasic(t *testing.T) {
+	skipIfPrivilegedDisabled(t)
+
+	var (
+		pool     libvirt.StoragePool
+		poolSize int64 = 10 << 20
+		random         = acctest.RandStringFromCharSet(10, acctest.CharSetAlpha)
+	)
+
+	loopDevice, err := NewLoopDevice("", "libvirt-lvm-pool-test-", poolSize)
+	if err != nil {
+		t.Fatalf("Failed to create loopback device: %v", err)
+	}
+	defer loopDevice.Destroy()
+
+	cfg := fmt.Sprintf(
+		`resource "libvirt_pool" "%s" {
+			name = "%s"
+			type = "logical"
+			source_devices = ["%s"]
+		}`,
+		random, random, loopDevice.Device,
+	)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckLibvirtPoolDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckLibvirtPoolExists("libvirt_pool."+random, &pool),
+					resource.TestCheckResourceAttr(
+						"libvirt_pool."+random, "name", random),
+					resource.TestCheckResourceAttr(
+						"libvirt_pool."+random, "path", "/dev/"+random),
+					resource.TestCheckResourceAttr(
+						"libvirt_pool."+random, "source_devices.#", "1"),
+					resource.TestCheckResourceAttr(
+						"libvirt_pool."+random, "source_devices.0", loopDevice.Device),
+				),
+			},
+		},
+	})
+}
+
+func TestAccLibvirtPool_LVMNoSourceDevices(t *testing.T) {
+	random := acctest.RandStringFromCharSet(10, acctest.CharSetAlpha)
+	errRegex := regexp.MustCompile(
+		`Non-empty "source_devices" attribute is required for storage pools of type "logical"`)
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckLibvirtPoolDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+				resource "libvirt_pool" "%s" {
+					name = "%s"
+					type = "logical"
+				}`, random, random),
+				ExpectError: errRegex,
+			},
+			{
+				Config: fmt.Sprintf(`
+				resource "libvirt_pool" "%s" {
+					name = "%s"
+					type = "logical"
+					source_devices = []
+				}`, random, random),
+				ExpectError: errRegex,
 			},
 		},
 	})

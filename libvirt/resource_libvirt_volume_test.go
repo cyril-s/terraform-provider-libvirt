@@ -128,6 +128,61 @@ func TestAccLibvirtVolume_Basic(t *testing.T) {
 	})
 }
 
+func TestAccLibvirtVolume_BasicLVM(t *testing.T) {
+	skipIfPrivilegedDisabled(t)
+
+	var (
+		volume libvirt.StorageVol
+		random = acctest.RandStringFromCharSet(10, acctest.CharSetAlpha)
+		// Sizes are multiples of default volume group physical extent size - 4 MiB
+		// Otherwise sizes are rouned to the closest greater multiple and terraform will report plan diff
+		poolSize int64 = 16 << 20
+		volSize        = fmt.Sprintf("%d", 8<<20)
+	)
+
+	loopDevice, err := NewLoopDevice("", "libvirt-lvm-pool-test-", poolSize)
+	if err != nil {
+		t.Fatalf("Failed to create loopback device: %v", err)
+	}
+	defer loopDevice.Destroy()
+
+	cfg := fmt.Sprintf(
+		`resource "libvirt_pool" "%s" {
+			name = "%s"
+			type = "logical"
+			source_devices = ["%s"]
+		}
+		resource "libvirt_volume" "%s" {
+			name = "%s"
+			size = %s
+			pool = "${libvirt_pool.%s.name}"
+		}`,
+		random, random, loopDevice.Device,
+		random, random, volSize, random,
+	)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:  func() { testAccPreCheck(t) },
+		Providers: testAccProviders,
+		CheckDestroy: resource.ComposeAggregateTestCheckFunc(
+			testAccCheckLibvirtVolumeDestroy,
+			testAccCheckLibvirtPoolDestroy,
+		),
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckLibvirtVolumeExists("libvirt_volume."+random, &volume),
+					resource.TestCheckResourceAttr(
+						"libvirt_volume."+random, "name", random),
+					resource.TestCheckResourceAttr(
+						"libvirt_volume."+random, "size", volSize),
+				),
+			},
+		},
+	})
+}
+
 func TestAccLibvirtVolume_BackingStoreTestByID(t *testing.T) {
 	var volume libvirt.StorageVol
 	var volume2 libvirt.StorageVol
@@ -200,6 +255,70 @@ func TestAccLibvirtVolume_BackingStoreTestByName(t *testing.T) {
 					testAccCheckLibvirtVolumeIsBackingStore("libvirt_volume."+random, &volume2),
 					resource.TestCheckResourceAttr(
 						"libvirt_volume."+random, "size", "1073741824"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccLibvirtVolume_BackingStoreTestLVM(t *testing.T) {
+	skipIfPrivilegedDisabled(t)
+
+	var (
+		volume, volume2 libvirt.StorageVol
+		random          = acctest.RandStringFromCharSet(10, acctest.CharSetAlpha)
+		// Sizes are multiples of default volume group physical extent size - 4 MiB
+		// Otherwise sizes are rouned to the closest greater multiple and terraform will report plan diff
+		poolSize int64 = 20 << 20
+		volSize        = fmt.Sprintf("%d", 8<<20)
+	)
+
+	loopDevice, err := NewLoopDevice("", "libvirt-lvm-pool-test-", poolSize)
+	if err != nil {
+		t.Fatalf("Failed to create loopback device: %v", err)
+	}
+	defer loopDevice.Destroy()
+
+	// LVM snapshot cannot be greater than base volume. So size is not specified
+	// to get it from the base volume.
+	cfg := fmt.Sprintf(
+		`resource "libvirt_pool" "%s" {
+			name = "%s"
+			type = "logical"
+			source_devices = ["%s"]
+		}
+		resource "libvirt_volume" "backing-%s" {
+			name = "backing-%s"
+			size = %s
+			pool = "${libvirt_pool.%s.name}"
+		}
+		resource "libvirt_volume" "%s" {
+			name = "%s"
+			base_volume_name = "${libvirt_volume.backing-%s.name}"
+			pool = "${libvirt_pool.%s.name}"
+		}`,
+		random, random, loopDevice.Device,
+		random, random, volSize, random,
+		random, random, random, random,
+	)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:  func() { testAccPreCheck(t) },
+		Providers: testAccProviders,
+		CheckDestroy: resource.ComposeAggregateTestCheckFunc(
+			testAccCheckLibvirtVolumeDestroy,
+			testAccCheckLibvirtPoolDestroy,
+		),
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckLibvirtVolumeExists("libvirt_volume.backing-"+random, &volume),
+					testAccCheckLibvirtVolumeIsBackingStore("libvirt_volume."+random, &volume2),
+					resource.TestCheckResourceAttr(
+						"libvirt_volume."+random, "size", volSize),
+					resource.TestCheckResourceAttr(
+						"libvirt_volume.backing-"+random, "size", volSize),
 				),
 			},
 		},
