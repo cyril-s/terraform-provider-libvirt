@@ -1,0 +1,46 @@
+name: Acceptance tests
+on:
+  push:
+    branches:
+      - set_up_acceptance_tests
+jobs:
+  acceptance:
+    name: Acceptance tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v5
+
+      - name: Setup libvirt
+        run: |
+          sudo apt update
+          sudo apt install -y --no-install-recommends \
+            libvirt-daemon-system \
+            qemu-utils \
+            qemu-system-x86 \
+            qemu-system-modules-spice \
+            qemu-block-extra \
+            python3-lxml \
+            python3-libvirt \
+            netcat-openbsd \
+            genisoimage \
+            xsltproc \
+            dnsmasq \
+            ovmf
+          sudo mkdir /pool
+          sudo chmod a+rwx /pool
+          sudo virsh pool-define travis/default-pool.xml
+          sudo virsh pool-start default
+          echo -e 'user = "root"\ngroup = "root"\nsecurity_driver = "none"\nsecurity_default_confined = 0\nsecurity_require_confined = 0\n' | sudo tee -a /etc/libvirt/qemu.conf
+          sudo systemctl restart libvirtd
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Setup terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Test
+        run: sudo make testacc
